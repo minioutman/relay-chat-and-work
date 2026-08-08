@@ -83,23 +83,21 @@ def get_session_meta(sid):
 def collect_workspace_files(workspace_dir, project_dir, out_dir):
     """按「项目文件夹精确收集」: 只收集 workspace 下与当前会话标题同名
     的文件夹(<workspace>/<title>/),不扫描整个 workspace,杜绝串台。
-    若该文件夹不存在,则回退为收集全部相关文件(需手动排除内部仓库)。
+    若该文件夹不存在,则打印提示并返回空(不粗暴扫全workspace)。
     返回相对 workspace 的路径列表。"""
     copied = []
     if not workspace_dir or not os.path.isdir(workspace_dir):
         return copied
-    # 优先: 精确的项目文件夹
+    # 仅精确收集项目文件夹
     candidates = []
     if project_dir and os.path.isdir(project_dir):
         candidates = [project_dir]
     else:
-        # 回退: 整个 workspace(排除源码库/归档库)
-        excl = {'relay-work-repo','relay-chat-and-work-repo','chatarchive-work',
-                'relay-chat-and-work'}
-        for d in os.listdir(workspace_dir):
-            full = os.path.join(workspace_dir, d)
-            if os.path.isdir(full) and d not in excl and not d.startswith('.'):
-                candidates.append(full)
+        # 项目文件夹不存在 → 不扫全 workspace,明确告知
+        print(f"[提示] 未找到项目文件夹: {project_dir}", file=sys.stderr)
+        print(f"       请确认产物放在 workspace/<该会话标题>/ 下;若已放,可用 --workspace 或改名对齐。",
+              file=sys.stderr)
+        return copied
     out_abs = os.path.abspath(out_dir)
     exts = ('.py','.sh','.md','.json','.csv','.png','.jpg','.html','.js','.ts','.txt','.log')
     for root in candidates:
@@ -109,6 +107,7 @@ def collect_workspace_files(workspace_dir, project_dir, out_dir):
             for f in files:
                 if f.startswith('.'): continue
                 if not f.endswith(exts): continue
+                if f.endswith('ISSUES.md'): continue  # ISSUES 单独放存档根目录
                 src = os.path.join(r, f)
                 if os.path.abspath(src).startswith(out_abs + os.sep): continue
                 rel = os.path.relpath(src, base)
@@ -198,7 +197,8 @@ def build_readme(out_dir, index):
 # ---------- 主流程 ----------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--id", required=True)
+    ap.add_argument("--id", help="指定会话ID存档")
+    ap.add_argument("--auto", action="store_true", help="自动存档最近的未归档会话(默认当前agent上一个非当前会话)")
     ap.add_argument("--workspace", default=None, help="工作区目录(默认取当前agent的workspace)")
     ap.add_argument("--out", required=True, help="档案输出目录(私人库克隆目录)")
     ap.add_argument("--slug", help="可选覆盖文件夹名")
@@ -206,11 +206,45 @@ def main():
     ap.add_argument("--index", default="archive_index.json", help="索引文件名/路径")
     ap.add_argument("--adapter", help="强制指定适配器名(minis/codex/claude/generic)")
     args = ap.parse_args()
+    if args.adapter:
+        os.environ["RELAY_ADAPTER"] = args.adapter
 
-    sid = args.id
-    # 解析工作区: 用户未显式指定时取当前agent的workspace
+    # 解析工作区
     ws = args.workspace or get_adapter().workspace()
     args.workspace = ws
+
+    index_path = args.index if os.path.isabs(args.index) else os.path.join(args.out, args.index)
+    index = load_index(index_path)
+
+    sid = args.id
+    if args.auto and not sid:
+        # 自动找「上一个已完成」的未归档会话。
+        # 列表按 active 排序,第1个通常=当前进行中的会话,跳过它,从第2个起找。
+        sessions = get_adapter().list_sessions(limit=100)
+        candidate_sessions = sessions[1:] + (sessions[:1] if len(sessions) <= 2 else [])
+        # 先尽量跳过最新(当前)会话;若后续都没有未归档,才回退到最早的
+        for s in candidate_sessions:
+            if s.get('session_id') in index:
+                continue  # 已归档
+            sid = s.get('session_id')
+            print(f"[auto] 找到未归档的上一轮会话: {s.get('title')} ({sid})")
+            break
+        # 若只跳过当前后全已归档,再尝试从最新全量找(允许存当前如果从未存)
+        if not sid:
+            for s in sessions:
+                if s.get('session_id') in index:
+                    continue
+                sid = s.get('session_id')
+                print(f"[auto] 未归档会话: {s.get('title')} ({sid})")
+                break
+        if not sid:
+            print("[auto] 没有需要归档的新会话(近期均已归档)。")
+            if index:
+                build_readme(args.out, index)
+            return
+    if not sid:
+        print("[错误] 必须提供 --id 或使用 --auto", file=sys.stderr); sys.exit(1)
+
     session = get_session(sid)
     if not session or not session.get('ok'):
         print("[错误] 无法读取会话元信息", file=sys.stderr); sys.exit(1)
@@ -221,8 +255,6 @@ def main():
     started_at = meta_info.get('started_at') or data.get('started_at')
     device = args.device or get_device()
 
-    index_path = args.index if os.path.isabs(args.index) else os.path.join(args.out, args.index)
-    index = load_index(index_path)
     existing = index.get(sid)
 
     # 计算目标文件夹名

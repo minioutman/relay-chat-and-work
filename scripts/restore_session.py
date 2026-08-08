@@ -22,7 +22,6 @@ import adapters.base as abase
 
 def get_adapter():
     return abase.active_adapter()
-
 # ---------- 工具 ----------
 def pull_repo(out_dir):
     """同步私人库最新状态(git pull)。"""
@@ -144,7 +143,10 @@ def main():
     ap.add_argument("--workspace", default=None, help="产物恢复目录")
     ap.add_argument("--resume", action="store_true", help="找到后自动触发续聊(D2)")
     ap.add_argument("--resume-text", help="自定义续聊话语")
+    ap.add_argument("--adapter", help="强制指定适配器(minis/codex/claude/generic),测试用")
     args = ap.parse_args()
+    if args.adapter:
+        os.environ["RELAY_ADAPTER"] = args.adapter
     # 未显式指定时,取当前 agent 的 workspace
     if not args.workspace:
         args.workspace = get_adapter().workspace()
@@ -229,7 +231,17 @@ def main():
         if not ok:
             print("  提示: 可直接手动打开该会话查看。session_id =", sid)
 
-    print("\n[完成] 如需打开会话:`minis-sessions-cli open " + (sid or "") + "`")
+    # 按当前 adapter 给下一步指引
+    a = get_adapter()
+    if a.name == "minis":
+        print("\n[完成] 已在本地恢复。如需在 Minis 打开会话:`minis-sessions-cli open " + (sid or "") + "`")
+    else:
+        print("\n[完成] 已在本地恢复为纯 Markdown。")
+        print("       当前环境无 Minis 续聊;请让当前 AI 阅读 PROJECT 下的")
+        print("       conversation.md / ISSUES.md 即可接续先前工作。")
+        issues_local = os.path.join(args.workspace, title, 'ISSUES.md')
+        if os.path.isfile(issues_local):
+            print("       提示: 有待解决项可先处理(见 ISSUES.md)。")
 
 if __name__ == '__main__':
     main()

@@ -46,7 +46,14 @@ def register_adapter(cls):
     return cls
 
 def active_adapter():
-    """返回当前环境下第一个 is_installed() 为真的适配器;都不匹配则 generic。"""
+    """返回当前环境下第一个 is_installed() 为真的适配器;都不匹配则 generic。
+    可通过环境变量 RELAY_ADAPTER 强制指定(测试/跨环境用)。"""
+    import os
+    forced = os.environ.get("RELAY_ADAPTER")
+    if forced:
+        cls = _registry.get(forced)
+        if cls:
+            return cls()
     for name, cls in _registry.items():
         try:
             if cls.is_installed():
