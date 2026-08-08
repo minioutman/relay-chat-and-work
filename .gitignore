@@ -1,0 +1,10 @@
+# 忽略进度文件
+relay-work/
+*.log
+
+# macOS
+.DS_Store
+
+# 编辑器
+.vscode/
+.idea/
