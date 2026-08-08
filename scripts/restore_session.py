@@ -102,6 +102,12 @@ def restore_artifacts(session_dir, title, workspace_dir):
         dst_cv = os.path.join(project_dir, 'conversation.md')
         shutil.copy2(cv, dst_cv)
         restored.append('conversation.md')
+    # 复制 ISSUES.md(项目记录,联动)
+    issues_src = os.path.join(session_dir, 'ISSUES.md')
+    if os.path.isfile(issues_src):
+        dst_is = os.path.join(project_dir, 'ISSUES.md')
+        shutil.copy2(issues_src, dst_is)
+        restored.append('ISSUES.md')
     return restored, project_dir
 
 # ---------- 会话续聊 (D2) ----------
@@ -191,6 +197,24 @@ def main():
     else:
         restored = []
         print(f"[提示] 存档目录不存在: {session_dir}", file=sys.stderr)
+
+    # ISSUES 联动提示:恢复出待解决项时,提醒新环境处理
+    issues_path = os.path.join(args.workspace, title, 'ISSUES.md')
+    if os.path.isfile(issues_path):
+        todo_n = 0
+        try:
+            with open(issues_path, encoding='utf-8') as f:
+                content = f.read()
+            import re
+            m = re.search(r'##\s*🔴.*?(?=##\s*✅|$)', content, re.S)
+            if m:
+                todo_n = len(re.findall(r'- \[(idea|q|bug|todo|dec)\]', m.group(0)))
+            print(f"[提示] ISSUES.md 有 {todo_n} 条待解决(想法/问题/Bug/待办)。")
+            print(f"       下一客户端(AI)将提示是否处理,解决后移入「已解决」区。")
+        except Exception:
+            pass
+    else:
+        print("[提示] 该项目无 ISSUES.md (未启用项目记录)。")
 
     # D2 续聊
     if args.resume:

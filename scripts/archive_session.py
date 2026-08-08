@@ -98,6 +98,7 @@ def collect_workspace_files(workspace_dir, project_dir, out_dir):
             for f in files:
                 if f.startswith('.'): continue
                 if not f.endswith(exts): continue
+                if f.endswith('ISSUES.md'): continue  # ISSUES 单独放存档根目录
                 src = os.path.join(r, f)
                 if os.path.abspath(src).startswith(out_abs + os.sep): continue
                 rel = os.path.relpath(src, base)
@@ -256,6 +257,26 @@ def main():
 
     # 产物
     copied = collect_workspace_files(args.workspace, project_dir, session_dir)
+
+    # ISSUES 联动: 同步项目记录。若本地项目有此文件则已随产物收集;
+    # 若无,则在存档中初始化一份空的 ISSUES.md 模板(跨客户端可追踪)。
+    issues_arch = os.path.join(session_dir, 'ISSUES.md')
+    issues_local = os.path.join(args.workspace, title, 'ISSUES.md')
+    if not os.path.exists(issues_arch):
+        if os.path.isfile(issues_local):
+            shutil.copy2(issues_local, issues_arch)
+        else:
+            with open(issues_arch,'w',encoding='utf-8') as f:
+                f.write(f"""# 项目记录 (想法 / 问题 / Bug / 待办 / 决策)
+
+> 自动维护 · 解决后移入「已解决」区,保留历史。
+
+## 🔴 待解决
+
+<!-- 格式: [-idea] 日期 内容 / [-bug] 日期 内容 / [-todo] 日期 内容 -->
+
+## ✅ 已解决
+""")
 
     # meta.json(含别名链)
     meta = {
