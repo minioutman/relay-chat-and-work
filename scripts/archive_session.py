@@ -73,12 +73,45 @@ def build_conversation_md(msgs):
         lines.append(f"## {tag}  |  {ts}\n\n{text}\n")
     return "\n".join(lines)
 
+def get_session_meta(sid):
+    """从 list 接口拿到会话的真实标题和开始时间(文件命名用)。"""
+    try:
+        out = subprocess.run(
+            ["minis-sessions-cli","list","--limit","100"],
+            capture_output=True, text=True, timeout=60)
+        d = json.loads(out.stdout)
+        for s in d.get('data',{}).get('sessions',[]):
+            if s.get('session_id') == sid:
+                return {'title': s.get('title'), 'started_at': s.get('started_at')}
+    except Exception:
+        pass
+    return {}
+
+def build_folder_name(title, started_at):
+    """文件夹名 = 真实标题 + 会话开始时间,便于区分同名会话。
+    例: 如何创建自定义技能_2026-08-09_0148"""
+    # 规范化时间 "2026-08-09 01:48" -> "2026-08-09_0148"
+    ts = ''
+    if started_at:
+        t = started_at.strip().replace(' ','_')
+        t = t.replace(':','').replace('/','_')
+        # 去掉秒等,只留 年月日_时分
+        import re
+        mm = re.match(r'(\d{4})[_\-](\d{2})[_\-](\d{2})[_\-](\d{2})(\d{2})?', t)
+        if mm:
+            y,mo,d,h,mi = mm.groups()
+            ts = f"{y}-{mo}-{d}_{h or '00'}{mi or '00'}"
+        else:
+            ts = sanitize_dirname(started_at)
+    base = sanitize_dirname(title)
+    return f"{base}_{ts}" if ts else base
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--id", required=True)
     ap.add_argument("--workspace", default="/var/minis/workspace")
     ap.add_argument("--out", required=True, help="输出目录(含会话文件夹)")
-    ap.add_argument("--slug", help="文件夹名;缺省用会话标题")
+    ap.add_argument("--slug", help="可选: 覆盖文件夹名(仅当不想用真实标题时)")
     args = ap.parse_args()
 
     sid = args.id
@@ -88,9 +121,18 @@ def main():
 
     data = session.get('data', {})
     msgs = data.get('messages', [])
-    # 标题:优先列表里的 title,否则用第一条消息
-    title = args.slug or data.get('title') or (msgs[0]['text'][:40] if msgs else 'untitled')
-    folder = sanitize_dirname(title if args.slug else data.get('title'))
+    # 从 list 拿真实标题 + 开始时间
+    meta_info = get_session_meta(sid)
+    real_title = meta_info.get('title') or data.get('title') or (msgs[0]['text'][:40] if msgs else 'untitled')
+    started_at = meta_info.get('started_at') or data.get('started_at')
+
+    # 文件夹名: 真实标题 + 开始时间;除非显式传 --slug
+    if args.slug:
+        folder = sanitize_dirname(args.slug)
+        title = args.slug
+    else:
+        title = real_title
+        folder = build_folder_name(real_title, started_at)
 
     # 目标文件夹
     session_dir = os.path.join(args.out, folder)
@@ -100,7 +142,7 @@ def main():
     # 1. 对话 md
     conv_md = build_conversation_md(msgs)
     with open(os.path.join(session_dir,'conversation.md'),'w',encoding='utf-8') as f:
-        f.write(f"# {title}\n\n> 自动存档 | 会话ID: {sid}\n\n")
+        f.write(f"# {title}\n\n> 自动存档 | 会话ID: {sid} | 开始时间: {started_at or '未知'}\n\n")
         f.write(conv_md)
 
     # 2. 产物文件
@@ -110,7 +152,7 @@ def main():
     meta = {
         "session_id": sid,
         "title": title,
-        "started_at": data.get('started_at'),
+        "started_at": started_at,
         "total_messages": data.get('total', len(msgs)),
         "archived_at": datetime.datetime.now().isoformat(timespec='seconds'),
         "collected_files": copied,
@@ -120,6 +162,7 @@ def main():
 
     print(f"[完成] 已存档: {session_dir}")
     print(f"  文件夹名: {folder}")
+    print(f"  标题: {title} | 开始时间: {started_at}")
     print(f"  消息数: {meta['total_messages']}")
     print(f"  收集产物文件: {len(copied)}")
 
