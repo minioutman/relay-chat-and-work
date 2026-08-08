@@ -27,8 +27,20 @@ def sanitize_dirname(name):
     name = name.strip(". ")
     return name or "untitled-session"
 
-def build_folder_name(title, started_at):
-    """文件夹名 = 真实标题 + 会话开始时间。例: 如何创建自定义技能_2026-08-09_0148"""
+def get_device():
+    """获取当前 iOS 设备名,用于存档文件夹名区分多设备。"""
+    try:
+        out = subprocess.run(["apple-device","--compact"],
+                             capture_output=True, text=True, timeout=20)
+        d = json.loads(out.stdout)
+        name = d.get('data',{}).get('device',{}).get('name') or 'device'
+        return sanitize_dirname(name)
+    except Exception:
+        return 'device'
+
+def build_folder_name(title, started_at, device='device'):
+    """文件夹名 = 真实标题 + 会话开始时间 + 设备名。
+    例: 如何创建自定义技能_2026-08-09_0148_iPhone"""
     ts = ''
     if started_at:
         t = started_at.strip().replace(' ','_').replace(':','').replace('/','_')
@@ -38,8 +50,10 @@ def build_folder_name(title, started_at):
             ts = f"{y}-{mo}-{d}_{h or '00'}{mi or '00'}"
         else:
             ts = sanitize_dirname(started_at)
+    dev = sanitize_dirname(device or 'device')
     base = sanitize_dirname(title)
-    return f"{base}_{ts}" if ts else base
+    parts = [p for p in (base, ts, dev) if p]
+    return "_".join(parts) if parts else "untitled-session"
 
 def get_session_meta(sid):
     """从 list 接口拿会话的真实标题与开始时间。"""
@@ -55,35 +69,47 @@ def get_session_meta(sid):
         pass
     return {}
 
-def collect_workspace_files(workspace_dir, out_dir):
-    """收集 workspace 相关产物文件。排除隐藏/输出目录/源码库/归档库自身。"""
-    if not workspace_dir or not os.path.isdir(workspace_dir):
-        return []
+def collect_workspace_files(workspace_dir, project_dir, out_dir):
+    """按「项目文件夹精确收集」: 只收集 workspace 下与当前会话标题同名
+    的文件夹(<workspace>/<title>/),不扫描整个 workspace,杜绝串台。
+    若该文件夹不存在,则回退为收集全部相关文件(需手动排除内部仓库)。
+    返回相对 workspace 的路径列表。"""
     copied = []
-    exts = ('.py','.sh','.md','.json','.csv','.png','.jpg','.html','.js','.ts','.txt','.log')
-    base = os.path.abspath(workspace_dir)
+    if not workspace_dir or not os.path.isdir(workspace_dir):
+        return copied
+    # 优先: 精确的项目文件夹
+    candidates = []
+    if project_dir and os.path.isdir(project_dir):
+        candidates = [project_dir]
+    else:
+        # 回退: 整个 workspace(排除源码库/归档库)
+        excl = {'relay-work-repo','relay-chat-and-work-repo','chatarchive-work',
+                'relay-chat-and-work'}
+        for d in os.listdir(workspace_dir):
+            full = os.path.join(workspace_dir, d)
+            if os.path.isdir(full) and d not in excl and not d.startswith('.'):
+                candidates.append(full)
     out_abs = os.path.abspath(out_dir)
-    excl_names = {'relay-work-repo','relay-chat-and-work-repo','chatarchive-work',
-                  'relay-chat-and-work'}
-    for root, dirs, files in os.walk(workspace_dir):
-        dirs[:] = [d for d in dirs
-                   if not d.startswith('.')
-                   and os.path.abspath(os.path.join(root,d)) != out_abs
-                   and d not in excl_names]
-        for f in files:
-            if f.startswith('.'): continue
-            if not f.endswith(exts): continue
-            src = os.path.join(root, f)
-            if os.path.abspath(src).startswith(out_abs + os.sep): continue
-            rel = os.path.relpath(src, base)
-            if rel.startswith('..'): continue
-            dst = os.path.join(out_dir, 'files', rel)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            try:
-                shutil.copy2(src, dst)
-                copied.append(rel)
-            except Exception:
-                pass
+    exts = ('.py','.sh','.md','.json','.csv','.png','.jpg','.html','.js','.ts','.txt','.log')
+    for root in candidates:
+        base = os.path.abspath(root)
+        for r, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            for f in files:
+                if f.startswith('.'): continue
+                if not f.endswith(exts): continue
+                src = os.path.join(r, f)
+                if os.path.abspath(src).startswith(out_abs + os.sep): continue
+                rel = os.path.relpath(src, base)
+                rel_ws = os.path.relpath(src, os.path.abspath(workspace_dir))
+                if rel_ws.startswith('..'): continue
+                dst = os.path.join(out_dir, 'files', rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                try:
+                    shutil.copy2(src, dst)
+                    copied.append(rel_ws)
+                except Exception:
+                    pass
     return copied
 
 def build_conversation_md(msgs, title, sid, started_at):
@@ -165,6 +191,7 @@ def main():
     ap.add_argument("--workspace", default="/var/minis/workspace")
     ap.add_argument("--out", required=True, help="档案输出目录(私人库克隆目录)")
     ap.add_argument("--slug", help="可选覆盖文件夹名")
+    ap.add_argument("--device", help="设备名;缺省自动检测")
     ap.add_argument("--index", default="archive_index.json", help="索引文件名/路径")
     args = ap.parse_args()
 
@@ -177,6 +204,7 @@ def main():
     meta_info = get_session_meta(sid)
     real_title = meta_info.get('title') or data.get('title') or (msgs[0]['text'][:40] if msgs else 'untitled')
     started_at = meta_info.get('started_at') or data.get('started_at')
+    device = args.device or get_device()
 
     index_path = args.index if os.path.isabs(args.index) else os.path.join(args.out, args.index)
     index = load_index(index_path)
@@ -186,8 +214,11 @@ def main():
     if args.slug:
         folder = sanitize_dirname(args.slug); title = args.slug
     else:
-        title = real_title; folder = build_folder_name(real_title, started_at)
+        title = real_title
+        folder = build_folder_name(real_title, started_at, device)
     session_dir = os.path.join(args.out, folder)
+    # 本地的项目文件夹 = workspace/<标题>/ (精确收集产物源)
+    project_dir = os.path.join(args.workspace, title)
 
     renamed = False
     old_title = None
@@ -224,13 +255,15 @@ def main():
             f.write(build_conversation_md(msgs, title, sid, started_at))
 
     # 产物
-    copied = collect_workspace_files(args.workspace, session_dir)
+    copied = collect_workspace_files(args.workspace, project_dir, session_dir)
 
     # meta.json(含别名链)
     meta = {
         "session_id": sid,
         "current_title": title,
         "started_at": started_at,
+        "device": device,
+        "project_dir": f"{title}/",
         "total_messages": data.get('total', len(msgs)),
         "archived_at": datetime.datetime.now().isoformat(timespec='seconds'),
         "collected_files": copied,
@@ -243,6 +276,7 @@ def main():
         "folder": folder,
         "current_title": title,
         "started_at": started_at,
+        "device": device,
         "aliases": existing.get('aliases', []) if existing else [],
     }
     if renamed:
