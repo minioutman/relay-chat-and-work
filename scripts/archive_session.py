@@ -87,6 +87,22 @@ def get_session_meta(sid):
         pass
     return {}
 
+def load_index(index_path):
+    """读取存档索引 (session_id -> meta)。索引文件不存在则返回空 dict。"""
+    if index_path and os.path.isfile(index_path):
+        try:
+            with open(index_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_index(index_path, index):
+    if not index_path:
+        return
+    with open(index_path, 'w', encoding='utf-8') as f:
+        json.dump(index, f, ensure_ascii=False, indent=2)
+
 def build_folder_name(title, started_at):
     """文件夹名 = 真实标题 + 会话开始时间,便于区分同名会话。
     例: 如何创建自定义技能_2026-08-09_0148"""
@@ -112,6 +128,7 @@ def main():
     ap.add_argument("--workspace", default="/var/minis/workspace")
     ap.add_argument("--out", required=True, help="输出目录(含会话文件夹)")
     ap.add_argument("--slug", help="可选: 覆盖文件夹名(仅当不想用真实标题时)")
+    ap.add_argument("--index", help="存档索引文件路径(archive_index.json),用于标题联动改名")
     args = ap.parse_args()
 
     sid = args.id
@@ -121,12 +138,15 @@ def main():
 
     data = session.get('data', {})
     msgs = data.get('messages', [])
-    # 从 list 拿真实标题 + 开始时间
     meta_info = get_session_meta(sid)
     real_title = meta_info.get('title') or data.get('title') or (msgs[0]['text'][:40] if msgs else 'untitled')
     started_at = meta_info.get('started_at') or data.get('started_at')
 
-    # 文件夹名: 真实标题 + 开始时间;除非显式传 --slug
+    # 加载索引,查找是否已存在该会话
+    index = load_index(args.index) if args.index else {}
+    existing = index.get(sid)
+
+    # 目标文件夹名
     if args.slug:
         folder = sanitize_dirname(args.slug)
         title = args.slug
@@ -134,16 +154,46 @@ def main():
         title = real_title
         folder = build_folder_name(real_title, started_at)
 
-    # 目标文件夹
     session_dir = os.path.join(args.out, folder)
+
+    # ---- 标题联动改名:若会话已存档且标题变了,自动 git mv ----
+    renamed = False
+    if existing:
+        old_folder = existing.get('folder')
+        if old_folder and old_folder != folder:
+            old_dir = os.path.join(args.out, old_folder)
+            if os.path.isdir(old_dir) and not os.path.isdir(session_dir):
+                try:
+                    # 用 git mv 保留历史(若在 git 仓库内)
+                    subprocess.run(["git","rm","-r","--quiet",old_folder],
+                                   cwd=args.out, capture_output=True, text=True)
+                    subprocess.run(["git","mv","--quiet",old_folder,folder],
+                                   cwd=args.out, capture_output=True, text=True)
+                    if not os.path.isdir(session_dir):  # git mv 失败则普通 os.rename
+                        os.rename(old_dir, session_dir)
+                    print(f"[改名] 会话标题变更: '{old_folder}' -> '{folder}'")
+                    renamed = True
+                except Exception as e:
+                    print(f"[警告] 无法改名 {old_folder}: {e}", file=sys.stderr)
+        # 标题变了就更新 conversation.md 顶部标题
+        if renamed:
+            cvp = os.path.join(session_dir, 'conversation.md')
+            if os.path.isfile(cvp):
+                with open(cvp, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                content = content.replace(existing.get('title', ''), title, 1)
+                with open(cvp, 'w', encoding='utf-8') as f:
+                    f.write(content)
+
     files_dir = os.path.join(session_dir, 'files')
     os.makedirs(files_dir, exist_ok=True)
 
     # 1. 对话 md
-    conv_md = build_conversation_md(msgs)
-    with open(os.path.join(session_dir,'conversation.md'),'w',encoding='utf-8') as f:
-        f.write(f"# {title}\n\n> 自动存档 | 会话ID: {sid} | 开始时间: {started_at or '未知'}\n\n")
-        f.write(conv_md)
+    if not os.path.isfile(os.path.join(session_dir,'conversation.md')):
+        conv_md = build_conversation_md(msgs)
+        with open(os.path.join(session_dir,'conversation.md'),'w',encoding='utf-8') as f:
+            f.write(f"# {title}\n\n> 自动存档 | 会话ID: {sid} | 开始时间: {started_at or '未知'}\n\n")
+            f.write(conv_md)
 
     # 2. 产物文件
     copied = collect_workspace_files(args.workspace, sid, session_dir)
@@ -160,11 +210,18 @@ def main():
     with open(os.path.join(session_dir,'meta.json'),'w',encoding='utf-8') as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
+    # 4. 更新索引
+    if args.index:
+        index[sid] = {"folder": folder, "title": title, "started_at": started_at}
+        save_index(args.index, index)
+
     print(f"[完成] 已存档: {session_dir}")
     print(f"  文件夹名: {folder}")
     print(f"  标题: {title} | 开始时间: {started_at}")
     print(f"  消息数: {meta['total_messages']}")
     print(f"  收集产物文件: {len(copied)}")
+    if renamed:
+        print("  (已执行标题联动改名)")
 
 if __name__ == '__main__':
     main()
