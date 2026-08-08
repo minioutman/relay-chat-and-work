@@ -24,28 +24,43 @@ def sanitize_dirname(name):
     name = name.strip(". ")
     return name or "untitled-session"
 
-def collect_workspace_files(workspace_dir, sid, out_dir):
-    """收集 workspace 中跟此会话可能相关的产物。简化:复制整个 workspace 关键文件,
-    用会话id在文件名里做标记,便于回溯。"""
+def collect_workspace_files(workspace_dir, sid, out_dir, exclude_dirs=()):
+    """收集 workspace 中跟此会话可能相关的产物文件。
+    排除: 隐藏目录、存档输出目录(out_dir)、技能源码仓库、以及手动指定的 exclude_dirs。
+    用相对 workspace 的路径在 files/ 下创建镜像结构。"""
     if not workspace_dir or not os.path.isdir(workspace_dir):
         return []
     copied = []
-    # 收集所有 .py/.sh/.md/.json/.csv/.png 等产物文件(排除隐藏与仓库自身)
     exts = ('.py','.sh','.md','.json','.csv','.png','.jpg','.html','.js','.ts','.txt','.log')
+    base = os.path.abspath(workspace_dir)
+    out_abs = os.path.abspath(out_dir)
+    # 构建需要排除的目录名集合(源码库名 + 存档输出名)
+    excl_names = set()
+    for d in list(exclude_dirs) + [out_dir]:
+        n = os.path.basename(os.path.normpath(d))
+        if n: excl_names.add(n)
+    excl_names.update({'relay-work-repo','relay-chat-and-work-repo','chatarchive-work'})
     for root, dirs, files in os.walk(workspace_dir):
-        dirs[:] = [d for d in dirs if not d.startswith('.') and d != 'relay-work-repo']
+        # 剪枝:排除隐藏目录、输出目录自身、源码库
+        dirs[:] = [d for d in dirs
+                   if not d.startswith('.')
+                   and os.path.abspath(os.path.join(root,d)) != out_abs
+                   and d not in excl_names]
         for f in files:
             if f.startswith('.'): continue
-            if f.endswith(exts):
-                src = os.path.join(root, f)
-                rel = os.path.relpath(src, workspace_dir)
-                dst = os.path.join(out_dir, 'files', rel)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                try:
-                    shutil.copy2(src, dst)
-                    copied.append(rel)
-                except Exception:
-                    pass
+            if not f.endswith(exts): continue
+            src = os.path.join(root, f)
+            # 跳过输出目录里的文件(即使已进入 walk)
+            if os.path.abspath(src).startswith(out_abs + os.sep): continue
+            rel = os.path.relpath(src, base)
+            if rel.startswith('..'): continue  # 只收 workspace 内部的
+            dst = os.path.join(out_dir, 'files', rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            try:
+                shutil.copy2(src, dst)
+                copied.append(rel)
+            except Exception:
+                pass
     return copied
 
 def build_conversation_md(msgs):
