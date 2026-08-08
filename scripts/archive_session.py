@@ -9,13 +9,28 @@ relay-chat-and-work: 对话存档脚本
 """
 import json, subprocess, sys, os, datetime, shutil, argparse, re
 
+# 适配器层: 动态选择当前环境的 agent(Minis/Codex/Claude/Generic)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from adapters import minis, claude, codex, generic  # noqa: F401
+import adapters.base as abase
+
+def get_adapter():
+    """返回当前环境的会话适配器。"""
+    return abase.active_adapter()
+
 # ---------- 基础工具 ----------
 def get_session(sid):
+    """改用适配器拉会话,适配当前 agent。"""
     try:
-        out = subprocess.run(
-            ["minis-sessions-cli","messages","--id",sid,"--full"],
-            capture_output=True, text=True, timeout=120)
-        return json.loads(out.stdout)
+        conv = get_adapter().get_conversation(sid)
+        if conv is None:
+            return None
+        # 包装成原有结构
+        return {"data": {"messages": conv.get("messages", []),
+                         "title": conv.get("title"),
+                         "started_at": conv.get("started_at"),
+                         "total": conv.get("total", len(conv.get("messages", [])))},
+                "ok": True}
     except Exception as e:
         print(f"[错误] 拉取会话 {sid} 失败: {e}", file=sys.stderr)
         return None
@@ -56,13 +71,9 @@ def build_folder_name(title, started_at, device='device'):
     return "_".join(parts) if parts else "untitled-session"
 
 def get_session_meta(sid):
-    """从 list 接口拿会话的真实标题与开始时间。"""
+    """从会话列表接口拿真实标题与开始时间。"""
     try:
-        out = subprocess.run(
-            ["minis-sessions-cli","list","--limit","100"],
-            capture_output=True, text=True, timeout=60)
-        d = json.loads(out.stdout)
-        for s in d.get('data',{}).get('sessions',[]):
+        for s in get_adapter().list_sessions(limit=100):
             if s.get('session_id') == sid:
                 return {'title': s.get('title'), 'started_at': s.get('started_at')}
     except Exception:
@@ -98,7 +109,6 @@ def collect_workspace_files(workspace_dir, project_dir, out_dir):
             for f in files:
                 if f.startswith('.'): continue
                 if not f.endswith(exts): continue
-                if f.endswith('ISSUES.md'): continue  # ISSUES 单独放存档根目录
                 src = os.path.join(r, f)
                 if os.path.abspath(src).startswith(out_abs + os.sep): continue
                 rel = os.path.relpath(src, base)
@@ -189,14 +199,18 @@ def build_readme(out_dir, index):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--id", required=True)
-    ap.add_argument("--workspace", default="/var/minis/workspace")
+    ap.add_argument("--workspace", default=None, help="工作区目录(默认取当前agent的workspace)")
     ap.add_argument("--out", required=True, help="档案输出目录(私人库克隆目录)")
     ap.add_argument("--slug", help="可选覆盖文件夹名")
     ap.add_argument("--device", help="设备名;缺省自动检测")
     ap.add_argument("--index", default="archive_index.json", help="索引文件名/路径")
+    ap.add_argument("--adapter", help="强制指定适配器名(minis/codex/claude/generic)")
     args = ap.parse_args()
 
     sid = args.id
+    # 解析工作区: 用户未显式指定时取当前agent的workspace
+    ws = args.workspace or get_adapter().workspace()
+    args.workspace = ws
     session = get_session(sid)
     if not session or not session.get('ok'):
         print("[错误] 无法读取会话元信息", file=sys.stderr); sys.exit(1)
@@ -257,26 +271,6 @@ def main():
 
     # 产物
     copied = collect_workspace_files(args.workspace, project_dir, session_dir)
-
-    # ISSUES 联动: 同步项目记录。若本地项目有此文件则已随产物收集;
-    # 若无,则在存档中初始化一份空的 ISSUES.md 模板(跨客户端可追踪)。
-    issues_arch = os.path.join(session_dir, 'ISSUES.md')
-    issues_local = os.path.join(args.workspace, title, 'ISSUES.md')
-    if not os.path.exists(issues_arch):
-        if os.path.isfile(issues_local):
-            shutil.copy2(issues_local, issues_arch)
-        else:
-            with open(issues_arch,'w',encoding='utf-8') as f:
-                f.write(f"""# 项目记录 (想法 / 问题 / Bug / 待办 / 决策)
-
-> 自动维护 · 解决后移入「已解决」区,保留历史。
-
-## 🔴 待解决
-
-<!-- 格式: [-idea] 日期 内容 / [-bug] 日期 内容 / [-todo] 日期 内容 -->
-
-## ✅ 已解决
-""")
 
     # meta.json(含别名链)
     meta = {

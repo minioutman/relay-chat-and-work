@@ -15,6 +15,14 @@ relay-chat-and-work: 加载/恢复到本地功能
 """
 import json, subprocess, sys, os, shutil, argparse, datetime
 
+# 适配器层: 动态选择当前 agent
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from adapters import minis, claude, codex, generic  # noqa: F401
+import adapters.base as abase
+
+def get_adapter():
+    return abase.active_adapter()
+
 # ---------- 工具 ----------
 def pull_repo(out_dir):
     """同步私人库最新状态(git pull)。"""
@@ -112,21 +120,15 @@ def restore_artifacts(session_dir, title, workspace_dir):
 
 # ---------- 会话续聊 (D2) ----------
 def resume_session(session_id, resume_text):
-    """用 session_id 触发 AI 续聊。返回是否成功。"""
+    """用适配器触发续聊。Minis 走 send --session;其他环境走各自适配器。"""
     if not session_id: return False, "无 session_id"
     text = resume_text or "继续上次的工作,先回顾一下我们做到哪了,再接着做。"
     try:
-        r = subprocess.run(
-            ["minis-sessions-cli","send",text,"--session",session_id],
-            capture_output=True, text=True, timeout=60)
-        out = r.stdout
-        try:
-            d = json.loads(out)
-            ok = d.get('ok')
-            status = d.get('data',{}).get('status') or d.get('data',{}).get('session_id','')
-            return bool(ok), f"已派发续聊(session {status})"
-        except Exception:
-            return r.returncode==0, out[:200] or r.stderr[:200]
+        a = get_adapter()
+        ok, msg = a.resume(session_id, text)
+        if ok:
+            return True, f"[{a.name}] {msg}"
+        return ok, f"[{a.name}] {msg}"
     except Exception as e:
         return False, f"续聊调用失败: {e}"
 
@@ -136,13 +138,16 @@ def main():
     ap.add_argument("--query", help="按标题/别名/关键词检索")
     ap.add_argument("--id", help="按 session_id 精确指定")
     ap.add_argument("--folder", help="按存档文件夹名精确指定")
-    ap.add_argument("--out", default="/var/minis/workspace/restore-cache",
+    ap.add_argument("--out", default=None,
                     help="私人库本地同步目录(默认缓存目录)")
     ap.add_argument("--archive-repo", help="私人库 git 地址(若需首次 clone)")
-    ap.add_argument("--workspace", default="/var/minis/workspace", help="产物恢复目录")
+    ap.add_argument("--workspace", default=None, help="产物恢复目录")
     ap.add_argument("--resume", action="store_true", help="找到后自动触发续聊(D2)")
     ap.add_argument("--resume-text", help="自定义续聊话语")
     args = ap.parse_args()
+    # 未显式指定时,取当前 agent 的 workspace
+    if not args.workspace:
+        args.workspace = get_adapter().workspace()
 
     if not (args.query or args.id or args.folder):
         print("[错误] 必须提供 --query / --id / --folder 之一", file=sys.stderr); sys.exit(1)
