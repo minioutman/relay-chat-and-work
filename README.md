@@ -48,6 +48,7 @@ GITHUB_TOKEN=your_token
 **Quick usage:**
 - **Relay work** — tell your agent: *"接力干活"* / *"split this into stages"* — it stages, persists progress, and resumes later.
 - **Auto-archive** — nothing to say; it silently archives the previous session on the next new chat.
+  Archiving is local by default; pass `--push` to `archive_session.py` to git commit + push to GitHub.
 
 ---
 
@@ -96,7 +97,7 @@ GITHUB_TOKEN=your_token
 **不一定。** 分两种情况:
 
 - **接力干活**(拆阶段、进度落盘、跨会话续接)、**ISSUES 记录**、**本地存档** —— 全部只依赖本地文件,**不需要 token**。
-- 只有**「自动存档到私人 GitHub 仓库」**这一步需要 token,因为它要 `git push` 到 GitHub。设置环境变量 **`GITHUB_TOKEN`** 即可开启该功能;不设也能用其余所有本地功能,但远程备份那一步会报错。
+- 只有**「自动存档到私人 GitHub 仓库」**这一步需要 token,因为它要 `git push` 到 GitHub。设置环境变量 **`GITHUB_TOKEN`** 并在调用 `archive_session.py` 时加 **`--push`** 即可开启;不加 `--push` 只做本地存档,不会报错。
 
 所以:**只想接力干活→不用 token;想自动备份对话到私人库→需要 token。**
 
@@ -127,7 +128,7 @@ GITHUB_TOKEN=你的token
 ## 用法
 
 **接力干活** —— 对 AI 说:「接力干活」「拆成步骤」「先做xx再做xx」…
-**自动存档** —— 无需说话,新对话打开自动静默执行。
+**自动存档** —— 无需说话,新对话打开自动静默执行;默认写本地,`--push` 才推送到私人库。
 
 ## 目录结构
 

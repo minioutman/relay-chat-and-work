@@ -48,13 +48,32 @@ def register_adapter(cls):
     return cls
 
 def active_adapter():
-    """返回当前环境下第一个 is_installed() 为真的适配器;都不匹配则 generic。
-    可通过环境变量 RELAY_ADAPTER 强制指定(测试/跨环境用)。"""
+    """返回当前环境的会话适配器。
+
+    优先用 RELAY_ADAPTER 强制指定;否则按运行时环境变量判断
+    (Codex/Claude/MinIS),最后才回退到注册顺序。
+    """
     import os
     forced = os.environ.get("RELAY_ADAPTER")
     if forced:
         cls = _registry.get(forced)
         if cls:
+            return cls()
+    runtime_markers = (
+        ("codex", ("CODEX_",)),
+        ("claude", ("CLAUDE_CODE", "CLAUDE_",)),
+        ("minis", ("MINIS_",)),
+    )
+    for name, prefixes in runtime_markers:
+        cls = _registry.get(name)
+        if not cls:
+            continue
+        try:
+            if not cls.is_installed():
+                continue
+        except Exception:
+            continue
+        if any(key.startswith(prefix) for key in os.environ for prefix in prefixes):
             return cls()
     for name, cls in _registry.items():
         try:

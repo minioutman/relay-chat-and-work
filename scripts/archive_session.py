@@ -20,6 +20,19 @@ def get_adapter():
     """返回当前环境的会话适配器。"""
     return abase.active_adapter()
 
+SENSITIVE_TOKEN_RE = re.compile(
+    r'\b(?:ghp|gho|ghu|ghs|ghr|glpat|github_pat_)[A-Za-z0-9_\-]{20,}\b'
+)
+SENSITIVE_KEY_VALUE_RE = re.compile(
+    r'(?i)((?:github|gitlab|api|access|auth|authorization|secret|password|passwd|bearer|token)'
+    r'(?:[ _-]?(?:token|key|secret|password))?\s*[=:]\s*)(\S+)'
+)
+
+def redact_sensitive(text):
+    """把常见 token/密码从对话文本中抹掉,避免敏感信息进私人库。"""
+    text = SENSITIVE_TOKEN_RE.sub('[REDACTED]', text or '')
+    return SENSITIVE_KEY_VALUE_RE.sub(r'\1[REDACTED]', text)
+
 # ---------- 基础工具 ----------
 def get_session(sid):
     """改用适配器拉会话,适配当前 agent。"""
@@ -61,7 +74,7 @@ def build_folder_name(title, started_at, device='device'):
     ts = ''
     if started_at:
         t = started_at.strip().replace(' ','_').replace(':','').replace('/','_')
-        mm = re.match(r'(\d{4})[_\-](\d{2})[_\-](\d{2})[_\-](\d{2})(\d{2})?', t)
+        mm = re.match(r'(\d{4})[-_](\d{2})[-_](\d{2})[T _\-](\d{2})[:.]?(\d{2})?', t)
         if mm:
             y,mo,d,h,mi = mm.groups()
             ts = f"{y}-{mo}-{d}_{h or '00'}{mi or '00'}"
@@ -101,7 +114,13 @@ def collect_workspace_files(workspace_dir, project_dir, out_dir):
               file=sys.stderr)
         return copied
     out_abs = os.path.abspath(out_dir)
-    exts = ('.py','.sh','.md','.json','.csv','.png','.jpg','.html','.js','.ts','.txt','.log')
+    exts = (
+        '.py','.sh','.md','.json','.csv','.png','.jpg','.jpeg','.gif','.webp','.svg',
+        '.html','.htm','.js','.ts','.jsx','.tsx','.css','.txt','.log','.pdf','.doc',
+        '.docx','.xls','.xlsx','.ppt','.pptx','.zip','.rar','.7z','.tar','.gz','.xml',
+        '.yaml','.yml','.toml','.ini','.cfg','.conf','.sql','.db','.sqlite','.sqlite3',
+        '.mp3','.mp4','.wav',
+    )
     for root in candidates:
         base = os.path.abspath(root)
         for r, dirs, files in os.walk(root):
@@ -109,8 +128,15 @@ def collect_workspace_files(workspace_dir, project_dir, out_dir):
             for f in files:
                 if f.startswith('.'): continue
                 if not f.endswith(exts): continue
-                if f.endswith('ISSUES.md'): continue  # ISSUES 单独放存档根目录
                 src = os.path.join(r, f)
+                if f.endswith('ISSUES.md'):
+                    # ISSUES 单独放会话目录根,不混进 files/。
+                    dst = os.path.join(out_dir, 'ISSUES.md')
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    shutil.copy2(src, dst)
+                    rel_ws = os.path.relpath(src, os.path.abspath(workspace_dir))
+                    copied.append(rel_ws)
+                    continue
                 if os.path.abspath(src).startswith(out_abs + os.sep): continue
                 rel = os.path.relpath(src, base)
                 rel_ws = os.path.relpath(src, os.path.abspath(workspace_dir))
@@ -129,7 +155,7 @@ def build_conversation_md(msgs, title, sid, started_at):
              f"> 自动存档 | 会话ID: `{sid}` | 开始时间: {started_at or '未知'}", ""]
     for m in msgs:
         role = m.get('role','?')
-        text = m.get('text','')
+        text = redact_sensitive(m.get('text',''))
         ts = m.get('created_at','')
         tag = '👤 用户' if role=='user' else ('🤖 AI' if role=='assistant' else f'🔧 {role}')
         lines.append(f"## {tag}  |  {ts}")
@@ -196,6 +222,32 @@ def build_readme(out_dir, index):
         f.write(readme)
     return readme_path
 
+def commit_and_push(out_dir, title, sid):
+    """把本次归档 commit 并 push 到私人库;失败只告警,不中断本地存档。"""
+    if not os.path.isdir(os.path.join(out_dir, '.git')):
+        print("[警告] 输出目录不是 git 仓库,跳过 commit/push", file=sys.stderr)
+        return
+    r = subprocess.run(["git","add","-A"], cwd=out_dir, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"[警告] git add 失败: {r.stderr[:200]}", file=sys.stderr)
+        return
+    r = subprocess.run(
+        ["git","commit","-m",f"archive: {title} ({sid})"],
+        cwd=out_dir, capture_output=True, text=True,
+    )
+    if r.returncode != 0 and 'nothing to commit' not in (r.stdout + r.stderr).lower():
+        print(f"[警告] git commit 失败: {r.stderr[:200]}", file=sys.stderr)
+        return
+    r = subprocess.run(["git","push"], cwd=out_dir, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(
+            "[警告] git push 失败(请检查 GITHUB_TOKEN 与私人库远程地址): "
+            + r.stderr[:300],
+            file=sys.stderr,
+        )
+        return
+    print("[push] 已推送私人库")
+
 # ---------- 主流程 ----------
 def main():
     ap = argparse.ArgumentParser()
@@ -203,6 +255,7 @@ def main():
     ap.add_argument("--auto", action="store_true", help="自动存档最近的未归档会话(默认当前agent上一个非当前会话)")
     ap.add_argument("--workspace", default=None, help="工作区目录(默认取当前agent的workspace)")
     ap.add_argument("--out", required=True, help="档案输出目录(私人库克隆目录)")
+    ap.add_argument("--push", action="store_true", help="归档后 git add/commit/push 到私人库")
     ap.add_argument("--slug", help="可选覆盖文件夹名")
     ap.add_argument("--device", help="设备名;缺省自动检测")
     ap.add_argument("--index", default="archive_index.json", help="索引文件名/路径")
@@ -223,9 +276,7 @@ def main():
         # 自动找「上一个已完成」的未归档会话。
         # 列表按 active 排序,第1个通常=当前进行中的会话,跳过它,从第2个起找。
         sessions = get_adapter().list_sessions(limit=100)
-        candidate_sessions = sessions[1:] + (sessions[:1] if len(sessions) <= 2 else [])
-        # 先尽量跳过最新(当前)会话;若后续都没有未归档,才回退到最早的
-        for s in candidate_sessions:
+        for s in sessions[1:]:
             if s.get('session_id') in index:
                 continue  # 已归档
             sid = s.get('session_id')
@@ -279,9 +330,8 @@ def main():
             old_dir = os.path.join(args.out, old_folder)
             if os.path.isdir(old_dir) and not os.path.isdir(session_dir):
                 try:
-                    r1 = subprocess.run(["git","rm","-r","--quiet",old_folder], cwd=args.out, capture_output=True, text=True)
-                    r2 = subprocess.run(["git","mv","--quiet",old_folder,folder], cwd=args.out, capture_output=True, text=True)
-                    if not os.path.isdir(session_dir):
+                    r = subprocess.run(["git","mv","--quiet",old_folder,folder], cwd=args.out, capture_output=True, text=True)
+                    if r.returncode != 0 or not os.path.isdir(session_dir):
                         os.rename(old_dir, session_dir)
                     print(f"[改名] 会话标题变更: '{old_folder}' -> '{folder}'")
                     renamed = True
@@ -334,6 +384,8 @@ def main():
 
     # 总览 README
     build_readme(args.out, index)
+    if args.push:
+        commit_and_push(args.out, title, sid)
 
     print(f"[完成] 已存档: {session_dir}")
     print(f"  文件夹名: {folder}")

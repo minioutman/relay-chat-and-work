@@ -22,6 +22,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from adapters import minis, claude, codex, generic  # noqa: F401
 import adapters.base as abase
 
+DEFAULT_ARCHIVE_CACHE = os.path.join(os.path.expanduser("~"), ".relay-chat-and-work", "archive")
+
 def get_adapter():
     return abase.active_adapter()
 # ---------- 工具 ----------
@@ -140,7 +142,7 @@ def main():
     ap.add_argument("--id", help="按 session_id 精确指定")
     ap.add_argument("--folder", help="按存档文件夹名精确指定")
     ap.add_argument("--out", default=None,
-                    help="私人库本地同步目录(默认缓存目录)")
+                    help=f"私人库本地同步目录(默认 {DEFAULT_ARCHIVE_CACHE})")
     ap.add_argument("--archive-repo", help="私人库 git 地址(若需首次 clone)")
     ap.add_argument("--workspace", default=None, help="产物恢复目录")
     ap.add_argument("--resume", action="store_true", help="找到后自动触发续聊(D2)")
@@ -156,7 +158,7 @@ def main():
     if not (args.query or args.id or args.folder):
         print("[错误] 必须提供 --query / --id / --folder 之一", file=sys.stderr); sys.exit(1)
 
-    out_dir = args.out
+    out_dir = args.out or DEFAULT_ARCHIVE_CACHE
     # 首次:如果目录不存在且给了仓库地址,则 clone
     if not os.path.isdir(out_dir) and args.archive_repo:
         os.makedirs(os.path.dirname(out_dir), exist_ok=True)

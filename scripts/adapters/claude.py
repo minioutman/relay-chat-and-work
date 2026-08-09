@@ -12,7 +12,9 @@ class ClaudeAdapter(AgentAdapter):
     @staticmethod
     def is_installed():
         import shutil
-        return shutil.which("claude") is not None or os.path.isdir(os.path.expanduser("~/.claude"))
+        if shutil.which("claude") is None:
+            return False
+        return os.path.isdir(os.path.expanduser("~/.claude/projects"))
 
     def _base(self):
         return os.path.expanduser("~/.claude/projects")
@@ -78,6 +80,12 @@ class ClaudeAdapter(AgentAdapter):
             if os.path.basename(p).replace(".jsonl", "") == sid:
                 return p
         return None
+
+    def workspace(self):
+        env = os.environ.get("RELAY_WORKSPACE")
+        if env:
+            return env
+        return os.environ.get("PWD") or os.getcwd()
 
     def resume(self, session_id, text):
         return False, "claude-code 自动续聊需手动 'claude --resume' 打开会话;由使用者执行"

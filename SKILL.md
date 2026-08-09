@@ -46,7 +46,7 @@ description: >
    └── files/            ← 该会话产生的产物文件
    ```
 4. 记录「已存会话 id」到存档索引(如 `archive_index.json`),避免重复打包
-5. commit + push 到 `minioutman-chat-and-work`
+5. 执行 `scripts/archive_session.py --push`,由脚本完成 commit + push 到 `minioutman-chat-and-work`
 
 ### 去重规则
 - 每次存完在索引里记录会话 id
@@ -58,6 +58,7 @@ description: >
 python3 scripts/archive_session.py --id <session_id> \
   --workspace /var/minis/workspace --out <目标目录> --slug <标题>
 ```
+加 `--push` 才会 git commit + push 到私人库;不加则只写本地存档。
 
 ## 能力二: 接力干活(Rely Work)
 
