@@ -25,6 +25,26 @@ It is **client-agnostic**: everything is plain Markdown, so you can start a task
 
 > **Local ≠ relay.** Relay work (picking up a half-finished task) already runs 100% locally — the GitHub archive is only an *optional* cross-device / cross-client backup of your full conversation history. If you never switch devices or clients, local-only is fine; GitHub adds the power to restore everything from anywhere.
 
+**Create a least-privilege `GITHUB_TOKEN`:**
+
+Prefer a **fine-grained personal access token** — it scopes access to only the repos you pick.
+
+1. GitHub → Settings → Developer settings → **Personal access tokens → Fine-grained tokens** → **Generate new token**.
+2. **Token name**: anything, e.g. `relay-chat-and-work`.
+3. **Expiration**: `90 days` or shorter (rotating is safer).
+4. **Repository access**: **Only select repositories**, then check:
+   - your archive target `https://github.com/<you>/<you>-chat-and-work`
+   - and the skill repo itself if your tool needs to push it.
+5. Under **Permissions**, set **Contents → Read and write** (the only permission needed to push). Leave everything else at its default.
+6. **Generate token** and **copy it immediately** (shown only once).
+
+> If your tool only supports classic tokens: use **Tokens (classic) → Generate** and check **`repo`** (full read/write, needed to push public + private). It's broader than fine-grained, so prefer fine-grained when possible.
+
+Finally, set it as the `GITHUB_TOKEN` environment variable:
+```
+GITHUB_TOKEN=your_token
+```
+
 **Quick usage:**
 - **Relay work** — tell your agent: *"接力干活"* / *"split this into stages"* — it stages, persists progress, and resumes later.
 - **Auto-archive** — nothing to say; it silently archives the previous session on the next new chat.
@@ -81,6 +101,28 @@ It is **client-agnostic**: everything is plain Markdown, so you can start a task
 所以:**只想接力干活→不用 token;想自动备份对话到私人库→需要 token。**
 
 > **本地≠接力。** 接力干活(接着上次没做完的活)**本来就在本地运行**,和 GitHub 无关;GitHub 存档只是对你**完整对话历史**的*可选*跨设备/跨客户端备份。如果你一直只在同一台设备、同一个客户端用,纯本地就够了;接 GitHub 的价值在于——无论换到哪台设备、哪个客户端,一条 `git clone` 就能把所有对话全找回来。
+
+## 如何创建最小权限的 GITHUB_TOKEN
+
+> 直接创建 **fine-grained (细粒度) Personal Access Token** 最安全——它只授权"那几个指定仓库"。
+
+1. 打开 **GitHub → 头像 → Settings → Developer settings → Personal access tokens → Fine-grained tokens**,点 **Generate new token**。
+2. **Token name**:随便填,如 `relay-chat-and-work`。
+3. **Expiration**:建议选 `90 days` 或更短(过期后需重新生成,更安全)。
+4. **Repository access**:选 **Only select repositories**(指定仓库),勾选:
+   - 自动存档目标私人库:`<你的用户名>-chat-and-work`
+   - 如果你的工具也要 push 技能公开库,一并勾上 `relay-chat-and-work`
+5. **Permissions** 里,展开 **Contents**,改成 **Read and write**(这是 push 文件所需的唯一权限)。其余全部保持默认(只读/不授权)。
+6. 点 **Generate token**,马上**复制并保存**这个 token(只会显示一次)。
+
+> 如果你用的工具只支持老式 token,就建 **Classic token**: 同上入口选 **Tokens (classic) → Generate**,勾选 **`repo`**(完整仓库读写,含 push 公开+私人库),别的都别勾。注意 classic 的 `repo` 权限范围偏大,不如 fine-grained 精确。
+
+最后把 token 设置成环境变量 `GITHUB_TOKEN` 即可,例如在配置里加:
+```
+GITHUB_TOKEN=你的token
+```
+
+一个可选的裁剪技巧:如果只想 push **公开**库、绝不碰私人库,可用只含 `public_repo` 权限的 classic token;但请记得这个 skill 的自动存档目标是**私人库**,所以默认至少要能写那一个私人仓库。
 
 ## 用法
 
