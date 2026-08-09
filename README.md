@@ -23,6 +23,8 @@ It is **client-agnostic**: everything is plain Markdown, so you can start a task
 - **No, not always.** The core **relay-work** feature (staging, progress on disk, cross-session resume), ISSUES tracking, and local archiving all work purely on local files — no token required.
 - **Only the "auto-archive to your private GitHub repo" step needs a token**, because it `git push`es to GitHub. Set the **`GITHUB_TOKEN`** env var to enable that. Without it, the skill still works for everything local, but the remote backup step will error out.
 
+> **Local ≠ relay.** Relay work (picking up a half-finished task) already runs 100% locally — the GitHub archive is only an *optional* cross-device / cross-client backup of your full conversation history. If you never switch devices or clients, local-only is fine; GitHub adds the power to restore everything from anywhere.
+
 **Quick usage:**
 - **Relay work** — tell your agent: *"接力干活"* / *"split this into stages"* — it stages, persists progress, and resumes later.
 - **Auto-archive** — nothing to say; it silently archives the previous session on the next new chat.
@@ -77,6 +79,8 @@ It is **client-agnostic**: everything is plain Markdown, so you can start a task
 - 只有**「自动存档到私人 GitHub 仓库」**这一步需要 token,因为它要 `git push` 到 GitHub。设置环境变量 **`GITHUB_TOKEN`** 即可开启该功能;不设也能用其余所有本地功能,但远程备份那一步会报错。
 
 所以:**只想接力干活→不用 token;想自动备份对话到私人库→需要 token。**
+
+> **本地≠接力。** 接力干活(接着上次没做完的活)**本来就在本地运行**,和 GitHub 无关;GitHub 存档只是对你**完整对话历史**的*可选*跨设备/跨客户端备份。如果你一直只在同一台设备、同一个客户端用,纯本地就够了;接 GitHub 的价值在于——无论换到哪台设备、哪个客户端,一条 `git clone` 就能把所有对话全找回来。
 
 ## 用法
 
