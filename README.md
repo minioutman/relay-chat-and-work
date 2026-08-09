@@ -2,6 +2,32 @@
 
 > Relay your long tasks AND auto-archive your chats. Split work into stages, progress step-by-step, persist to disk, resume across sessions — all while silently backing up each finished conversation (and its files) to your private GitHub repo.
 
+---
+
+## 🇬🇧 English
+
+**relay-chat-and-work** is a single skill for AI agents (Claude Code, Minis, Codex, Gemini CLI — anything that supports Agent Skills) that does two things:
+
+1. **Relay long tasks** — split work into numbered stages, persist progress to disk, and resume across sessions on any device.
+2. **Auto-archive chats** — when a new conversation opens, silently back up the previous session (full transcript + generated files) to your **private GitHub repo**, organized by conversation title.
+
+It is **client-agnostic**: everything is plain Markdown, so you can start a task in one agent and continue it in another without losing context. Comes with a cross-agent adapter layer (`scripts/adapters/`) and an `ISSUES.md` project log for tracking open tasks/decisions across sessions.
+
+**Install:**
+```bash
+# Copy the whole relay-chat-and-work/ folder into your skills directory.
+# e.g. Claude Code: ~/.claude/skills/  ·  Codex: ~/.agents/skills/
+# Then set the GITHUB_TOKEN env var (used for pushing the private archive repo).
+```
+
+**Quick usage:**
+- **Relay work** — tell your agent: *"接力干活"* / *"split this into stages"* — it stages, persists progress, and resumes later.
+- **Auto-archive** — nothing to say; it silently archives the previous session on the next new chat.
+
+---
+
+## 中文
+
 一个给 AI 助手(Claude / Minis / Codex 等支持 skills 的 Agent)用的**一体化长任务技能**。它把两件事合二为一:
 
 1. **接力干活**(Rely Work)—— 长任务拆阶段、落盘、跨会话续接
