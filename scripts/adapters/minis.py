@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Minis 适配器: 通过 minis-sessions-cli 与 Minis 会话系统交互。"""
+__version__ = "2.1.0"
+
 import json, subprocess
 from .base import AgentAdapter, register_adapter
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Claude Code 适配器: ~/.claude/projects/<proj>/<session>.jsonl"""
+__version__ = "2.1.0"
+
 import os, json, glob, subprocess
 from .base import AgentAdapter, register_adapter
 

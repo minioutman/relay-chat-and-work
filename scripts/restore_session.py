@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """
+__version__ = "2.1.0"
+
 relay-chat-and-work: 加载/恢复到本地功能
 把私人库存档的会话恢复回本地: 离线查看(A) + 产物(B) + 对话文本(C) + 会话续聊(D)。
 

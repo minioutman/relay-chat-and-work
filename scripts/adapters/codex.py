@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Codex CLI 适配器: ~/.codex/sessions/<session>.jsonl + codex resume 续聊"""
+__version__ = "2.1.0"
+
 import os, json, glob, subprocess, datetime
 from .base import AgentAdapter, register_adapter
 

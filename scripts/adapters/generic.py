@@ -2,6 +2,8 @@
 """通用兜底适配器: 没有任何已知 CLI 会话系统时的 fallback。
 只依赖纯 Markdown / git,适用于任何环境(云端 IDE、ChatGPT 等只传 MD)。
 """
+__version__ = "2.1.0"
+
 import os
 from .base import AgentAdapter, register_adapter
 

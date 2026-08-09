@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """适配器抽象基类:所有 agent 适配器实现统一接口,方便扩展新客户端。"""
+__version__ = "2.1.0"
+
 import abc
 
 class AgentAdapter(abc.ABC):

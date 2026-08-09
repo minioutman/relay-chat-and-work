@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """
+__version__ = "2.1.0"
+
 relay-chat-and-work: 项目记录管理器(想法/问题/Bug/待办/决策)
 维护存到私人库的行为 ISSUES.md 的活日志。
 

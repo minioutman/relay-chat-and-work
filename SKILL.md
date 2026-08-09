@@ -1,97 +1,82 @@
 ---
 name: relay-chat-and-work
-version: 2.0.0
+version: 2.1.0
 description: >
-  一体化长任务技能: 接力干活 + 跨客户端项目存档/加载。
-  核心模型: 每次打开一个新会话=一个新项目,本地按会话标题建项目文件夹,产物归其下;
-  存档到 GitHub 私人仓库(<GitHub用户名>-chat-and-work,按 标题_时间_设备名 建文件夹);
-  换客户端(如 Minis→Codex)后可用加载功能把项目(对话+产物+项目记录)拉回本地继续做。
-  自动维护 ISSUES.md 项目记录(想法/问题/Bug/待办/决策),供下一客户端接续时提示处理。
-  触发词: "接力干活"、"接力"、"分阶段做"、"存档对话"、"打包对话"、"加载到本地"、
-  "恢复项目"、"继续上次"、"接着干"、"换客户端继续"、"archive/restore"。
+  接力干活 + 自动存档对话的一体化长任务技能。
+  两大核心能力:
+  (1) 接力干活: 把长任务拆成有编号阶段,分步推进,进度落盘,跨会话续接;
+  (2) 自动存档对话: 每次新对话打开,自动把上一轮会话的全部对话+产物文件,
+      打包进用户的 GitHub 私人仓库(命名 <GitHub用户名>-chat-and-work),
+      按对话标题建文件夹,静默完成不打扰。
+  触发词: "接力干活"、"接力"、"分阶段做"、"拆成步骤"、"存档对话"、
+  "打包对话"、"存对话"、"archive this chat"、"继续"、"接着干"、"续上"。
 ---
 
-# relay-chat-and-work: 跨客户端项目接力 + 存加载
+# relay-chat-and-work
 
-让长任务的**项目状态**跨会话、跨客户端的 GitHub 私人仓库可持续续做。
-
-## 核心模型
-
-**每次打开新会话 = 一个新项目。**
-
-本地: `/var/minis/workspace/<会话标题>/`(项目文件夹,所有产物放这里)
-存档: `私人库/<会话标题>_<YYYYMMDD_HHMM>_<设备名>/`(完整状态)
-
-换客户端不断链: 今天 Minis 做的,存档进私人库;明天 Codex 加载到本地继续做。
-
-## 数据全部是纯 Markdown
-
-存的是 MD,加载的也是 MD。conversation.md / ISSUES.md / PROJECT_STATUS 皆纯文本,
-任何认 Markdown 的客户端都能读写,不绑定 Minis/Codex 专属格式。
+长任务的接力推进 + 对话自动存档一体化技能。
 
 ## 三大能力
 
-1. **接力干活**: 长任务拆阶段、落盘、跨会话/跨客户端续接
-2. **自动存档**: 新对话打开时静默补存上一轮会话(对话+产物+项目记录)→ 私人库
-3. **加载到本地**: 按需把存档拉回本地,新客户端继续做(A离线/B产物/C文本/D续做)
+1. **接力干活**(Rely Work)—— 长任务拆阶段、落盘、跨会话续接
+2. **对话自动存档**(Auto-Archive)—— 新对话打开时静默补存上一轮会话
+3. **按对话标题归档** —— 私人库按 `对话标题/` 建文件夹,分组存放
 
-## 项目文件夹(本地)
+## 存档目标仓库
 
-干活时默认把产物放进 `/var/minis/workspace/该会话标题/`,不散落根目录。
-存档时精确收集此文件夹 → 对应私人库存档。杜绝跨会话串台。
+私人库命名规则:**`<GitHub用户名>-chat-and-work`**
 
-## 私人仓库命名
+- 本用户 GitHub 账号: `minioutman`
+- 即私人库: `minioutman/minioutman-chat-and-work`(private)
+- 每个对话 → `仓库/<对话标题>/`
 
-**`<GitHub用户名>-chat-and-work`** (private)
-本用户账号 `minioutman` → 库名 `minioutman-chat-and-work`。
-存iframe: `仓库/<标题>_<时间>_<设备>/` ,例 `官方仓库技能需求查询_2026-08-08_0127_iPhone/`。
-设备名用 `apple-device` 获取,可 `--device` 覆盖。
+## 能力一: 自动存档对话(Auto-Archive)
 
-## 存档结构(每会话)
+**触发方式(无需用户说话,静默执行,不提醒):**
+每次用户打开一个新对话时,自动执行——检索上一个会话是否未打包,若未打包则补存。
 
+### 流程
+1. `minis-sessions-cli list` 找出上一个会话(前一个非当前会话,注意排除本会话自身)
+2. 用 `minis-sessions-cli messages --id <prev_id> --full` 拉完整对话
+3. 打包结构:
+   ```
+   <上一轮对话标题>/
+   ├── conversation.md   ← 完整对话(按消息角色分段)
+   ├── meta.json         ← 会话元信息(时间/总数/收集的产物)
+   └── files/            ← 该会话产生的产物文件
+   ```
+4. 记录「已存会话 id」到存档索引(如 `archive_index.json`),避免重复打包
+5. commit + push 到 `minioutman-chat-and-work`
+
+### 去重规则
+- 每次存完在索引里记录会话 id
+- 下次遇到已存 id 直接跳过,不重复
+
+### 存档工具
+用内置脚本 `scripts/archive_session.py`:
 ```
-<标题>_<时间>_<设备>/
-├── conversation.md     完整对话
-├── meta.json           元信息(会话ID/标题/设备/产物清单)
-├── ISSUES.md           项目记录(想法/问题/Bug/待办/决策) ← 核心续接依据
-└── files/              产物文件
+python3 scripts/archive_session.py --id <session_id> \
+  --workspace /var/minis/workspace --out <目标目录> --slug <标题>
 ```
 
-## 工具脚本(scripts/)
+## 能力二: 接力干活(Rely Work)
 
-| 脚本 | 用途 |
-|------|------|
-| `archive_session.py` | 存档: 拉会话→建项目文件夹→收集产物→写meta/issues→更新索引+README |
-| `restore_session.py` | 加载: 定位→恢复产物+文本+ISSUES→(可选)触发续聊 |
-| `issues.py` | 项目记录管理: add/list/resolve(移到已解决)/delete |
+把长任务拆成阶段,推进 + 落盘 + 续接。详见能力一的流程,方法同 relay-work:
+1. 接任务 → 拆成有编号的阶段(每段有明确交付物)
+2. 初始化进度文件(`/var/minis/workspace/relay-work/` 下)
+3. 逐阶段推进,每完成一段更新进度文件
+4. 默认自动推进;需要用户拍板的停下并置「等待确认」
+5. 跨会话续接:读进度文件 → 看续接点 → 无缝继续
 
-用法:
-```
-python3 scripts/archive_session.py --id <sid> --workspace /var/minis/workspace --out <私人库目录> [--device 名]
-python3 scripts/restore_session.py --query "<标题/别名>" [--out 私人库目录] [--workspace 恢复目录] [--resume]
-python3 scripts/issues.py add --type idea|bug|todo|q|decision --title "..." --file <ISSUES.md>
-```
-
-## ISSUES 记录机制(跨客户端接续核心)
-
-- **自动搜集**: 干活时遇到想法/问题/bug/待办/决策,调用 issues.py 追加到 ISSUES.md
-- **加载提示**: restore 后,新客户端(AI)看到 ISSUES.md 的待解决项,主动提示"要处理吗"
-- **解决即移":** 处理完用 `issues.py resolve` 移入「已解决」区(保留历史,不删)
-- 决策/待办也记录,保持项目心智模型完整
-
-## 环境适配(换客户端)
-
-- **Minis 环境**: 有 `minis-sessions-cli`,restore 可 `--resume` 用 session_id 触发真续聊
-- **其他客户端(Codex 等)**: 无 minis-cli → restore 只输出 MD(conversation+ISSUES+产物),
-  AI 读 ISSUES.md / conversation.md 即可接着往下做,不报错不依赖专属命令
-- 脚本自动检测 `minis-sessions-cli` 是否存在,决定是否启用续聊
+进度文件规范见 `references/protocol.md`。
 
 ## 环境依赖
 
-- `GITHUB_TOKEN`(GitHub 推送)必须已设置;未设则提示用户设置 [GITHUB_TOKEN](minis://settings/environments)
+- `GITHUB_TOKEN`(GitHub 推送身份认证)必须已设置
+- 若未设置:告知用户设置 [GITHUB_TOKEN](minis://settings/environments),并给出创建 token 指引
 
 ## 注意
 
-- 存档静默执行,但遇权限/网络错误必须向用户汇报
-- 敏感信息(密码/token)不写入存档
-- 产物精确收集当前会话项目文件夹,不扫描整个 workspace
+- 存档动作为静默执行,但若遇到权限失败/网络错误,须向用户汇报,不静默吞掉。
+- 产物文件从 `/var/minis/workspace` 收集(排除隐藏文件、.git、本技能源码仓库自身)。
+- 敏感信息(密码/token)不写入存档;发现要跳过。

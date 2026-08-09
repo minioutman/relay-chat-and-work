@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """
+__version__ = "2.1.0"
+
 relay-chat-and-work: 对话存档脚本
 把指定会话导出为 conversation.md + 收集产物文件 + 写 meta.json,
 并通过 archive_index.json 维护别名链与标题联动改名,生成根目录总览 README.md。

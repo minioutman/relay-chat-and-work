@@ -5,6 +5,8 @@
   python3 env_detect.py --list   → 列出全部可用适配器
   python3 env_detect.py --adapter <name>   → 打印指定适配器的能力
 """
+__version__ = "2.1.0"
+
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
